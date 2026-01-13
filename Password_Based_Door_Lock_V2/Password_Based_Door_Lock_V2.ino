@@ -35,7 +35,7 @@ String Input_Password = "";
 
 // System settings
 const int MAX_WRONG_ATTEMPTS = 3;
-const unsigned long LOCKOUT_TIME = 10000; // 10 seconds lockout (reduced from 30)
+const unsigned long LOCKOUT_TIME = 10000; // 10 seconds lockout
 const unsigned long DOOR_OPEN_TIME = 3000; // 3 seconds door open
 const unsigned long DEBOUNCE_DELAY = 50;   // 50ms debounce
 const unsigned long LCD_UPDATE_INTERVAL = 250; // Update LCD every 250ms during lockout
@@ -48,6 +48,7 @@ unsigned long lockoutEndTime = 0;
 unsigned long lastKeyPressTime = 0;
 unsigned long lastLCDUpdate = 0;
 bool inLockoutMode = false;
+bool systemResetNeeded = false; // Flag to indicate system needs reset after lockout
 
 void setup() 
 {
@@ -79,6 +80,8 @@ void setup()
   lcd.clear();
   lcd.print("Enter Password:");
   lcd.setCursor(0, 1);
+  lcd.print("____"); // Show 4 underscores initially
+  lcd.setCursor(0, 1);
 }
 
 void loop() 
@@ -93,6 +96,13 @@ void loop()
   {
     // Lockout period ended
     exitLockoutMode();
+  }
+  
+  // Reset system if needed after lockout
+  if (systemResetNeeded)
+  {
+    resetSystemAfterLockout();
+    systemResetNeeded = false;
   }
   
   // Get key with debouncing
@@ -164,9 +174,29 @@ void exitLockoutMode()
   tone(Buzzer_Pin, 800, 200);
   delay(1000);
   
+  // Set flag to reset system properly
+  systemResetNeeded = true;
+}
+
+void resetSystemAfterLockout()
+{
+  // Reset all system variables to default state
+  Input_Password = "";
+  Wrong_Attempts = 0;
+  Change_Mode = false;
+  Waiting_For_New_Password = false;
+  
+  // Reset LCD display to normal state
   lcd.clear();
   lcd.print("Enter Password:");
   lcd.setCursor(0, 1);
+  lcd.print("____"); // Show 4 underscores
+  lcd.setCursor(0, 1);
+  
+  // Ensure all outputs are off
+  digitalWrite(Solenoid_Pin, LOW);
+  digitalWrite(Led_Pin, LOW);
+  noTone(Buzzer_Pin);
 }
 
 void handleKeyPress(char key) 
@@ -182,7 +212,7 @@ void handleKeyPress(char key)
       if (Input_Password.length() < 10) 
       {
         Input_Password += key;
-        displayPasswordMask(Input_Password.length(), 10);
+        displayPasswordDots(Input_Password.length(), 10);
       }
     }
     else if (Waiting_For_New_Password) 
@@ -191,7 +221,7 @@ void handleKeyPress(char key)
       if (Input_Password.length() < 4) 
       {
         Input_Password += key;
-        displayPasswordMask(Input_Password.length(), 4);
+        displayPasswordDots(Input_Password.length(), 4);
       }
     }
     else 
@@ -200,7 +230,7 @@ void handleKeyPress(char key)
       if (Input_Password.length() < 4) 
       {
         Input_Password += key;
-        displayPasswordMask(Input_Password.length(), 4);
+        displayPasswordDots(Input_Password.length(), 4);
       }
     }
   }
@@ -209,7 +239,14 @@ void handleKeyPress(char key)
     // Clear input
     Input_Password = "";
     lcd.setCursor(0, 1);
-    lcd.print("                ");
+    if (Change_Mode && !Waiting_For_New_Password) 
+    {
+      lcd.print("__________"); // 10 underscores for master
+    }
+    else if (Waiting_For_New_Password || (!Change_Mode && !Waiting_For_New_Password))
+    {
+      lcd.print("____"); // 4 underscores for user
+    }
     lcd.setCursor(0, 1);
   }
   else if (key == '#') 
@@ -226,6 +263,8 @@ void handleKeyPress(char key)
     lcd.clear();
     lcd.print("Master Password:");
     lcd.setCursor(0, 1);
+    lcd.print("__________"); // 10 underscores for master password
+    lcd.setCursor(0, 1);
   }
 }
 
@@ -241,6 +280,8 @@ void Check_Password()
       Input_Password = "";
       Waiting_For_New_Password = true;
       lcd.setCursor(0, 1);
+      lcd.print("____"); // 4 underscores for new password
+      lcd.setCursor(0, 1);
       tone(Buzzer_Pin, 1500, 200);
     }
     else 
@@ -253,6 +294,8 @@ void Check_Password()
       lcd.print("Enter Password:");
       Change_Mode = false;
       Input_Password = "";
+      lcd.setCursor(0, 1);
+      lcd.print("____");
       lcd.setCursor(0, 1);
     }
   }
@@ -272,6 +315,8 @@ void Check_Password()
       Waiting_For_New_Password = false;
       Input_Password = "";
       lcd.setCursor(0, 1);
+      lcd.print("____");
+      lcd.setCursor(0, 1);
     }
     else 
     {
@@ -282,6 +327,8 @@ void Check_Password()
       lcd.clear();
       lcd.print("New Password:");
       Input_Password = "";
+      lcd.setCursor(0, 1);
+      lcd.print("____");
       lcd.setCursor(0, 1);
     }
   }
@@ -313,6 +360,9 @@ void Check_Password()
       lcd.clear();
       lcd.print("Enter Password:");
       lcd.setCursor(0, 1);
+      lcd.print("____");
+      lcd.setCursor(0, 1);
+      Input_Password = "";
     }
     else 
     {
@@ -331,12 +381,13 @@ void Check_Password()
       if (Wrong_Attempts >= MAX_WRONG_ATTEMPTS) 
       {
         activateAlarm();
-        Wrong_Attempts = 0;
       }
       else
       {
         lcd.clear();
         lcd.print("Enter Password:");
+        lcd.setCursor(0, 1);
+        lcd.print("____");
         lcd.setCursor(0, 1);
         Input_Password = "";
       }
@@ -382,25 +433,31 @@ void activateAlarm()
   noTone(Buzzer_Pin);
   digitalWrite(Led_Pin, LOW);
   
+  // Reset input password
+  Input_Password = "";
+  
   // Start lockout
   lockoutEndTime = millis() + LOCKOUT_TIME;
   lastLCDUpdate = 0; // Reset for lockout display
+  
+  // Reset wrong attempts counter
+  Wrong_Attempts = 0;
 }
 
-void displayPasswordMask(int length, int maxLength) 
+void displayPasswordDots(int length, int maxLength) 
 {
   lcd.setCursor(0, 1);
   
-  // Only update the necessary part of the display
+  // Display asterisks for entered digits
   for (int i = 0; i < maxLength; i++) 
   {
     if (i < length) 
     {
-      lcd.print("*");
+      lcd.print("*"); // Show asterisk for entered digit
     }
     else 
     {
-      lcd.print(" ");
+      lcd.print("_"); // Show underscore for remaining positions
     }
   }
   
@@ -410,14 +467,6 @@ void displayPasswordMask(int length, int maxLength)
     lcd.print(" ");
   }
   
-  // Show cursor position
-  if (length < maxLength) 
-  {
-    lcd.setCursor(length, 1);
-    lcd.cursor();
-  }
-  else 
-  {
-    lcd.noCursor();
-  }
+  // Position cursor at next underscore
+  lcd.setCursor(length, 1);
 }
